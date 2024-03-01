@@ -59,6 +59,7 @@ use std::error;
 use std::fmt;
 use std::io;
 use std::result;
+use std::time::Duration;
 use read::ReadExt;
 use write::WriteExt;
 
@@ -539,6 +540,32 @@ impl WavSpec {
             v[0x40] = 0xFF; v[0x41] = 0xFF; v[0x42] = 0xFF; v[0x43] = 0xFF; 
         } else {
             unreachable!()
+        }
+
+        v
+    }
+
+    pub fn into_header_for_data_size(self, data_chunk_size: u32, sample_rate: u32, channels: u16, bits_per_sample: u16) -> Vec<u8> {
+        let mut cursor = std::io::Cursor::new(Vec::with_capacity(0x44));
+        {
+            let mut writer = WavWriter::new(&mut cursor, self).unwrap();
+            // Instead of dropping the writer immediately, finalize it to ensure the header is correctly written.
+            writer.finalize().unwrap();
+        }
+
+        let mut v = cursor.into_inner();
+
+        // Adjust the RIFF chunk size to reflect the actual size
+        let riff_chunk_size = 36 + data_chunk_size; // 36 bytes for the header fields + data chunk size
+        v[4..8].copy_from_slice(&riff_chunk_size.to_le_bytes());
+
+        // Adjust the data chunk size to reflect the actual size
+        if v[16] == 0x10 { // PCM wave
+            v[40..44].copy_from_slice(&data_chunk_size.to_le_bytes());
+        } else if v[16] == 0x28 { // Extensible
+            v[52..56].copy_from_slice(&data_chunk_size.to_le_bytes());
+        } else {
+            unreachable!();
         }
 
         v
